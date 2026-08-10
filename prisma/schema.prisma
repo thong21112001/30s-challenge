@@ -1,0 +1,122 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum Role {
+  USER
+  ADMIN
+}
+
+enum ChallengeType {
+  QUIZ
+  TEXT
+  ACTION
+}
+
+enum Difficulty {
+  EASY
+  MEDIUM
+  HARD
+}
+
+enum SessionStatus {
+  PENDING
+  ACTIVE
+  COMPLETED
+  EXPIRED
+}
+
+model User {
+  id           String                @id @default(cuid())
+  username     String                @unique
+  email        String                @unique
+  passwordHash String
+  role         Role                  @default(USER)
+  createdAt    DateTime              @default(now())
+  updatedAt    DateTime              @updatedAt
+  stats        UserStats?
+  assignments  ChallengeAssignment[]
+  sessions     ChallengeSession[]
+  submissions  Submission[]
+
+  @@map("users")
+}
+
+model UserStats {
+  id                String    @id @default(cuid())
+  userId            String    @unique
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  totalXp           Int       @default(0)
+  currentStreak     Int       @default(0)
+  bestStreak        Int       @default(0)
+  lastCompletedDate String?   // "YYYY-MM-DD"
+  updatedAt         DateTime  @updatedAt
+
+  @@map("user_stats")
+}
+
+model Challenge {
+  id          String                @id @default(cuid())
+  title       String
+  description String
+  type        ChallengeType
+  difficulty  Difficulty            @default(MEDIUM)
+  baseXp      Int                   @default(25)
+  payload     Json                  // Stores type-specific data (quiz options, answer key, target text, action config)
+  isActive    Boolean               @default(true)
+  createdAt   DateTime              @default(now())
+  updatedAt   DateTime              @updatedAt
+  assignments ChallengeAssignment[]
+
+  @@map("challenges")
+}
+
+model ChallengeAssignment {
+  id           String            @id @default(cuid())
+  userId       String
+  user         User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  challengeId  String
+  challenge    Challenge         @relation(fields: [challengeId], references: [id], onDelete: Cascade)
+  assignedDate String            // "YYYY-MM-DD" in UTC
+  createdAt    DateTime          @default(now())
+  session      ChallengeSession?
+
+  @@unique([userId, assignedDate], name: "unique_user_daily_assignment")
+  @@unique([challengeId, assignedDate], name: "unique_challenge_daily_assignment")
+  @@index([assignedDate])
+  @@map("challenge_assignments")
+}
+
+model ChallengeSession {
+  id           String              @id @default(cuid())
+  assignmentId String              @unique
+  assignment   ChallengeAssignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  userId       String
+  user         User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  startedAt    DateTime            @default(now())
+  expiresAt    DateTime            // startedAt + 30 seconds
+  status       SessionStatus       @default(ACTIVE)
+  submission   Submission?
+
+  @@index([userId, status])
+  @@map("challenge_sessions")
+}
+
+model Submission {
+  id            String           @id @default(cuid())
+  sessionId     String           @unique
+  session       ChallengeSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  userId        String
+  user          User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  submittedAt   DateTime         @default(now())
+  answerPayload Json
+  isCorrect     Boolean
+  xpEarned      Int              @default(0)
+
+  @@map("submissions")
+}
